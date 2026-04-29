@@ -1,4 +1,8 @@
 {
+  "name": "davywentworth",
+  "owner": {
+    "name": "davywentworth"
+  },
   "plugins": [
     {
       "name": "wf-annotator",
