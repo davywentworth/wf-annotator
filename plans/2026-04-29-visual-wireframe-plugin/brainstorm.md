@@ -1,7 +1,7 @@
 # wf-annotator — Brainstorm
 
 **Date**: 2026-04-29  
-**Type**: Claude Code plugin (cross-project, lives in `claude-skills`)
+**Type**: Claude Code plugin (cross-project, lives in `davywentworth/wf-annotator`)
 
 ---
 
@@ -15,14 +15,30 @@ Inspired by plannotator, but for visual artifacts rather than markdown text.
 
 ## Core Flow
 
-1. User runs `/wireframe [description | path/to/plan.md]`
-2. Claude reads input and generates a self-contained HTML wireframe
-3. Plugin writes wireframe to temp, starts local server (`bin/wireframe serve`)
-4. Browser opens: wireframe rendered in Shadow DOM, annotation layer on top
-5. User annotates visually → submits
-6. Server captures annotations as JSON → unblocks Claude
-7. Claude revises wireframe → diff view shown → repeat
-8. User hits **Approve** → wireframe saved to `plans/<date>-<topic>/wireframe.html`, plan doc updated to reference it
+1. User invokes `/wf-annotator:annotate [description | path/to/plan.md]` — either manually, or triggered automatically as part of a `/brainstorm` or `/interview` workflow
+2. Input is most likely a plan doc; freetext descriptions are also supported
+3. Claude generates a self-contained HTML wireframe from the input
+4. Plugin writes wireframe to temp, starts local server (`bin/wf-annotator serve`)
+5. Browser opens: wireframe rendered in Shadow DOM, annotation layer on top
+6. User annotates visually → submits
+7. Server captures annotations as JSON → unblocks Claude
+8. Claude revises wireframe → diff view shown → repeat
+9. User hits **Approve** → wireframe saved to `plans/<date>-<topic>/wireframe.html`, plan doc updated to reference it
+
+### Session resumption
+
+If the session is interrupted (network drop, `/clear`, system restart), the plugin saves state to `plans/<date>-<topic>/wf-annotator-session.json` after each round:
+
+```json
+{
+  "wireframeVersion": 2,
+  "source": "path/to/plan.md",
+  "wireframePath": "plans/.../wireframe-v2.html",
+  "annotationHistory": [...]
+}
+```
+
+On next invocation with the same plan path, the plugin detects the session file and resumes from the last saved wireframe version, showing the diff view for context. Mirrors how `/interview` uses `discussion.log` and `/brainstorm` uses the written doc as its resume point.
 
 ---
 
@@ -32,7 +48,8 @@ Claude generates the wireframe from either a freetext description or a plan `.md
 
 ### Output format
 
-- Self-contained HTML, Tailwind CDN only, no external assets, no JS frameworks
+- Self-contained HTML, Tailwind CDN only, no external assets
+- No JS frameworks in the initial version; interactive JS may be embedded in future iterations for richer prototyping
 - One file, no build step
 
 ### Content rules
@@ -40,15 +57,16 @@ Claude generates the wireframe from either a freetext description or a plan `.md
 - **Real content** for load-bearing elements: headings, nav labels, button copy, form labels, card titles
 - **Lorem ipsum** for body paragraphs and descriptive text blocks
 - Wireframe aesthetic: intentionally rough, gray palette, no real colors or imagery
+- Mobile wireframes supported — specify in the description or plan (e.g. "wireframe a mobile settings screen")
 
 ### Semantic labeling
 
-Every meaningful element gets a stable `id` or `class` for annotation targeting. Selectors must survive revisions — Claude preserves these across iterations.
+Every meaningful element gets a stable `id` for annotation targeting — IDs preferred over classes, uniqueness required. Claude preserves these across iterations. IDs are never reused — if an element is deleted, its ID is retired permanently. A new element added later must receive a fresh ID, even if it serves the same role.
 
 ```html
 <nav id="nav-primary">...</nav>
 <section id="hero">...</section>
-<div class="card-product">...</div>
+<article id="card-product-1">...</article>
 ```
 
 ### Element manifest
@@ -59,7 +77,7 @@ A machine-readable comment at the top of the HTML enumerates all annotatable ele
 <!-- MANIFEST
 nav#nav-primary: Primary navigation
 section#hero: Hero / headline area
-div.card-product: Product card (repeating)
+article#card-product-1: Product card (repeating)
 footer#footer: Footer
 -->
 ```
@@ -91,21 +109,25 @@ The wireframe is rendered inside a **Shadow DOM** — not an iframe. Shadow DOM 
 
 **2. move** — drag-based, two sub-forms depending on drop target
 
+Magnitude uses nudge-level language derived from drag distance: `"nudge"` (small), `"shift"` (medium), `"far"` (large).
+
 Drop on element:
 ```json
 {
   "type": "move",
   "element": { "selector": "#sidebar", "label": "Sidebar" },
-  "target": { "selector": "#header", "position": "after" }
+  "target": { "selector": "#header", "position": "after" },
+  "magnitude": "shift"
 }
 ```
 
-Drop on empty space (direction derived from drag vector):
+Drop on empty space (direction + magnitude derived from drag vector):
 ```json
 {
   "type": "move",
   "element": { "selector": "#sidebar", "label": "Sidebar" },
-  "direction": "right"
+  "direction": "right",
+  "magnitude": "far"
 }
 ```
 
@@ -121,7 +143,7 @@ Drop on empty space (direction derived from drag vector):
 - Annotation cards in order: type badge, element label, content, delete button
 - `general` annotations appear first
 - Submit button at bottom (disabled until ≥1 annotation exists)
-- Approve button at bottom (bypasses further annotation, accepts current wireframe)
+- Approve button at bottom — discards any pending unsent annotations; shows confirmation popup: *"This will discard your current annotations and approve the wireframe. Proceed?"*
 
 ---
 
@@ -136,19 +158,26 @@ On submit, Claude receives:
   "annotations": [
     { "type": "general", "note": "Nav feels too heavy" },
     { "type": "comment", "selector": "#hero", "label": "Hero", "note": "CTA should be higher" },
-    { "type": "move", "element": { "selector": "#sidebar", "label": "Sidebar" }, "target": { "selector": "#header", "position": "after" } }
+    {
+      "type": "move",
+      "element": { "selector": "#sidebar", "label": "Sidebar" },
+      "target": { "selector": "#header", "position": "after" },
+      "magnitude": "shift"
+    }
   ]
 }
 ```
 
 Claude revises the wireframe and the browser shows a **diff view**:
-- Previous version (left) with faded previous-round annotations for context
-- New version (right) with changed elements highlighted
+- Previous version (left) and new version (right) with changed elements highlighted
+- A draggable center divider — dragging it adjusts zoom level on each side rather than causing reflow
+- Previous-round annotations shown faded on the left for context
 - Loop repeats until Approve
 
 On Approve:
 - Final wireframe written to `plans/<date>-<topic>/wireframe.html`
 - Plan doc updated to reference the wireframe
+- Session file cleaned up
 - Claude unblocked to proceed
 
 ---
@@ -158,9 +187,9 @@ On Approve:
 | Component | Choice |
 |---|---|
 | Browser app | React + Vite, pre-built into `app/dist/` |
-| Local server | Node.js script in `bin/wireframe` (no separate install) |
+| Local server | Node.js script in `bin/wf-annotator` (no separate install) |
 | Server transport | WebSocket (annotation submit) + static file serving |
-| Claude integration | `Bash(wireframe:*)` — server prints annotations as JSON to stdout |
+| Claude integration | `Bash(wf-annotator:*)` — server prints annotations as JSON to stdout |
 
 ---
 
@@ -171,9 +200,9 @@ wf-annotator/
   .claude-plugin/
     plugin.json
   commands/
-    wireframe.md         ← /wireframe slash command
+    annotate.md          ← /wf-annotator:annotate slash command
   bin/
-    wireframe            ← Node.js server (added to PATH by plugin)
+    wf-annotator         ← Node.js server (added to PATH by plugin)
   app/
     src/                 ← React + Vite source
     dist/                ← pre-built, bundled with plugin
@@ -183,12 +212,12 @@ wf-annotator/
 
 ## Distribution
 
-- GitHub repo: `<owner>/wf-annotator`
+- GitHub repo: `davywentworth/wf-annotator`
 - Plugin marketplace pattern (same as plannotator)
 - No separate binary install — server is bundled in `bin/`
 - Users install with:
   ```
-  /plugin marketplace add <owner>/wf-annotator
+  /plugin marketplace add davywentworth/wf-annotator
   /plugin install wf-annotator@wf-annotator
   ```
 
@@ -199,4 +228,3 @@ wf-annotator/
 - Free-form element repositioning (drag = annotation intent, not DOM mutation)
 - Annotating existing screenshots or Figma exports (generation only)
 - Sharing wireframes externally
-- Mobile annotation UI
