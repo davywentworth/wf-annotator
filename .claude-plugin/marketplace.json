@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "wf-annotator",
-      "source": ".",
+      "source": "./plugin",
       "description": "Generate visual HTML wireframes and annotate them interactively in a browser. Annotations flow back to Claude for revision until approved."
     }
   ]

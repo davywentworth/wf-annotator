@@ -95,12 +95,12 @@ EOF
 
 **First round (N = 1):**
 ```bash
-result=$(wf-annotator serve --wireframe plans/<slug>/wireframe-v1.html --version 1 --port 7823)
+result=$("$CLAUDE_PLUGIN_ROOT/scripts/wf-annotator" serve --wireframe plans/<slug>/wireframe-v1.html --version 1 --port 7823)
 ```
 
 **Subsequent rounds (N ≥ 2, shows diff view):**
 ```bash
-result=$(wf-annotator serve \
+result=$("$CLAUDE_PLUGIN_ROOT/scripts/wf-annotator" serve \
   --wireframe plans/<slug>/wireframe-v<N>.html \
   --previous plans/<slug>/wireframe-v<N-1>.html \
   --annotations plans/<slug>/annotations-v<N-1>.json \
@@ -162,7 +162,7 @@ rm plans/<slug>/wf-annotator-session.json
 
 ## Notes
 
-- If `wf-annotator` is not found in PATH, remind the user to install the plugin: `/plugin install wf-annotator@wf-annotator`
+- If `$CLAUDE_PLUGIN_ROOT` is not set, remind the user to install the plugin: `/plugin install wf-annotator@davywentworth`
 - If port 7823 is in use, try `--port 7824` (increment until free)
 - Annotation revision is Claude's judgment — treat annotation notes as intent, not literal DOM surgery
 - The diff view is automatic when `--previous` is passed; no extra steps needed
