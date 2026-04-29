@@ -1,0 +1,14 @@
+{
+  "name": "wf-annotator",
+  "version": "0.1.0",
+  "description": "Generate visual HTML wireframes and annotate them interactively in a browser. Annotations flow back to Claude for revision until approved.",
+  "author": "davywentworth",
+  "commands": [
+    {
+      "name": "annotate",
+      "description": "Generate a wireframe from a description or plan doc, annotate it interactively, and save the approved result.",
+      "path": "commands/annotate.md"
+    }
+  ],
+  "bin": "bin/"
+}
