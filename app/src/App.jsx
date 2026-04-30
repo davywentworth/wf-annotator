@@ -13,8 +13,11 @@ export default function App() {
   useEffect(() => {
     if (!message) return;
     if (message.type === 'wireframe' || message.type === 'wireframe-update') {
-      setWireframe(message);
-      setAnnotations([]);
+      setWireframe((prev) => {
+        // Only clear annotations when the version changes (new round), not on SSE reconnect.
+        if (prev?.version !== message.version) setAnnotations([]);
+        return message;
+      });
     }
   }, [message]);
 
@@ -90,11 +93,6 @@ export default function App() {
         onApprove={handleApprove}
       />
 
-      {state === 'error' && wireframe && (
-        <div className="fixed bottom-4 left-4 bg-red-500 text-white text-xs px-3 py-2 rounded-lg shadow">
-          Connection lost — annotations preserved. Reconnect to continue.
-        </div>
-      )}
     </div>
   );
 }
