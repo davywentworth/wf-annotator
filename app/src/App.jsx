@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useServer } from './hooks/useServer.js';
 import { WireframeView } from './components/WireframeView.jsx';
 import { AnnotationPanel } from './components/AnnotationPanel.jsx';
@@ -9,28 +9,31 @@ export default function App() {
   const { state, message, send } = useServer();
   const [wireframe, setWireframe] = useState(null);
   const [annotations, setAnnotations] = useState([]);
+  const prevVersionRef = useRef(null);
 
   useEffect(() => {
     if (!message) return;
-    if (message.type === 'wireframe' || message.type === 'wireframe-update') {
-      setWireframe((prev) => {
-        // Only clear annotations when the version changes (new round), not on SSE reconnect.
-        if (prev?.version !== message.version) setAnnotations([]);
-        return message;
-      });
+    if (message.type !== 'wireframe' && message.type !== 'wireframe-update') return;
+    // Clear annotations only when the version advances (new round), not on SSE reconnect.
+    if (prevVersionRef.current !== message.version) {
+      setAnnotations([]);
+      prevVersionRef.current = message.version;
     }
+    setWireframe(message);
   }, [message]);
 
   const addAnnotation = (a) => setAnnotations((prev) => [...prev, a]);
   const deleteAnnotation = (i) => setAnnotations((prev) => prev.filter((_, idx) => idx !== i));
   const addGeneral = (note) => addAnnotation({ type: 'general', note });
 
-  const handleSubmit = () => {
-    send({ type: 'submit', wireframeVersion: wireframe.version, annotations });
-    setAnnotations([]);
+  const handleSubmit = async () => {
+    if (!wireframe) return;
+    const ok = await send({ type: 'submit', wireframeVersion: wireframe.version, annotations });
+    if (ok) setAnnotations([]);
   };
 
   const handleApprove = () => {
+    if (!wireframe) return;
     send({ type: 'approve', wireframeVersion: wireframe.version });
   };
 
@@ -92,7 +95,6 @@ export default function App() {
         onSubmit={handleSubmit}
         onApprove={handleApprove}
       />
-
     </div>
   );
 }

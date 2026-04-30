@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 export function useServer() {
   const [state, setState] = useState('connecting');
@@ -29,17 +29,22 @@ export function useServer() {
     return () => es.close();
   }, []);
 
-  const send = async (data) => {
+  // Returns true on success, false on failure. Callers should only act
+  // on state changes (e.g. clearing annotations) when true is returned.
+  const send = useCallback(async (data) => {
     try {
-      await fetch('/api/submit', {
+      const res = await fetch('/api/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
+      if (!res.ok) throw new Error(`Submit failed: ${res.status}`);
+      return true;
     } catch (e) {
       console.error('Submit failed', e);
+      return false;
     }
-  };
+  }, []);
 
   return { state, message, send };
 }
