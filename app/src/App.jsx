@@ -1,20 +1,23 @@
 import { useState, useEffect } from 'react';
-import { useWebSocket } from './hooks/useWebSocket.js';
+import { useServer } from './hooks/useServer.js';
 import { WireframeView } from './components/WireframeView.jsx';
 import { AnnotationPanel } from './components/AnnotationPanel.jsx';
 import { DiffView } from './components/DiffView.jsx';
 import { parseManifest } from './utils/manifest.js';
 
 export default function App() {
-  const { state, message, send } = useWebSocket();
+  const { state, message, send } = useServer();
   const [wireframe, setWireframe] = useState(null);
   const [annotations, setAnnotations] = useState([]);
 
   useEffect(() => {
     if (!message) return;
     if (message.type === 'wireframe' || message.type === 'wireframe-update') {
-      setWireframe(message);
-      setAnnotations([]);
+      setWireframe((prev) => {
+        // Only clear annotations when the version changes (new round), not on SSE reconnect.
+        if (prev?.version !== message.version) setAnnotations([]);
+        return message;
+      });
     }
   }, [message]);
 
@@ -90,11 +93,6 @@ export default function App() {
         onApprove={handleApprove}
       />
 
-      {state === 'error' && wireframe && (
-        <div className="fixed bottom-4 left-4 bg-red-500 text-white text-xs px-3 py-2 rounded-lg shadow">
-          Connection lost — annotations preserved. Reconnect to continue.
-        </div>
-      )}
     </div>
   );
 }
