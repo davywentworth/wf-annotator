@@ -1,0 +1,155 @@
+#!/usr/bin/env node
+
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
+
+const args = process.argv.slice(2);
+
+function getArg(name) {
+  const i = args.indexOf(name);
+  return i !== -1 ? args[i + 1] : null;
+}
+
+const command = args[0];
+if (command !== 'serve') {
+  process.stderr.write('Usage: wf-annotator serve --wireframe <path> [--previous <path>] [--annotations <path>] [--version <n>] [--port <n>]\n');
+  process.exit(1);
+}
+
+const wireframePath = getArg('--wireframe');
+const previousPath = getArg('--previous');
+const annotationsPath = getArg('--annotations');
+const version = parseInt(getArg('--version') || '1', 10);
+const port = parseInt(getArg('--port') || '7823', 10);
+
+if (!wireframePath) {
+  process.stderr.write('--wireframe is required\n');
+  process.exit(1);
+}
+
+if (!fs.existsSync(wireframePath)) {
+  process.stderr.write(`Wireframe file not found: ${wireframePath}\n`);
+  process.exit(1);
+}
+
+const wireframeHtml = fs.readFileSync(wireframePath, 'utf8');
+const previousHtml = previousPath && fs.existsSync(previousPath)
+  ? fs.readFileSync(previousPath, 'utf8')
+  : null;
+const previousAnnotations = annotationsPath && fs.existsSync(annotationsPath)
+  ? (JSON.parse(fs.readFileSync(annotationsPath, 'utf8')).annotations || [])
+  : null;
+
+const distDir = path.join(__dirname, 'dist');
+
+const MIME = {
+  '.html': 'text/html',
+  '.js': 'application/javascript',
+  '.css': 'text/css',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.png': 'image/png',
+  '.woff2': 'font/woff2',
+};
+
+function serveFile(res, filePath) {
+  if (!fs.existsSync(filePath)) {
+    res.writeHead(404);
+    res.end('Not found');
+    return;
+  }
+  res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream' });
+  res.end(fs.readFileSync(filePath));
+}
+
+const server = http.createServer((req, res) => {
+  if (req.url === '/api/status') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'waiting', version }));
+    return;
+  }
+
+  if (req.url === '/api/events' && req.method === 'GET') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+    res.write('\n');
+
+    const payload = previousHtml
+      ? { type: 'wireframe-update', version, html: wireframeHtml, previousHtml, previousAnnotations: previousAnnotations || [] }
+      : { type: 'wireframe', version, html: wireframeHtml };
+
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+
+    req.on('close', () => {
+      process.stderr.write('Browser disconnected.\n');
+    });
+    return;
+  }
+
+  if (req.url === '/api/submit' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let msg;
+      try { msg = JSON.parse(body); } catch {
+        res.writeHead(400);
+        res.end('Bad JSON');
+        return;
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+
+      if (msg.type === 'submit') {
+        process.stdout.write(JSON.stringify({
+          wireframeVersion: msg.wireframeVersion,
+          annotations: msg.annotations,
+        }) + '\n');
+      } else if (msg.type === 'approve') {
+        process.stdout.write(JSON.stringify({
+          approved: true,
+          wireframeVersion: msg.wireframeVersion,
+        }) + '\n');
+      }
+
+      server.close();
+      process.exit(0);
+    });
+    return;
+  }
+
+  const urlPath = req.url === '/' ? '/index.html' : req.url.split('?')[0];
+  serveFile(res, path.join(distDir, urlPath));
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    process.stderr.write(`Port ${port} is already in use.\n`);
+    process.exit(1);
+  }
+  throw err;
+});
+
+server.listen(port, () => {
+  const url = `http://localhost:${port}`;
+  process.stderr.write(`wf-annotator serving on ${url}\n`);
+
+  const openCmd =
+    process.platform === 'darwin' ? `open "${url}"` :
+    process.platform === 'win32' ? `start "" "${url}"` :
+    `xdg-open "${url}"`;
+
+  try {
+    execSync(openCmd, { stdio: 'ignore' });
+  } catch {
+    process.stderr.write(`Could not open browser automatically. Visit ${url} manually.\n`);
+  }
+});
+
+process.on('SIGTERM', () => { server.close(); process.exit(0); });
+process.on('SIGINT', () => { server.close(); process.exit(0); });

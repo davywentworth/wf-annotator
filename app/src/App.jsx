@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
-import { useWebSocket } from './hooks/useWebSocket.js';
+import { useServer } from './hooks/useServer.js';
 import { WireframeView } from './components/WireframeView.jsx';
 import { AnnotationPanel } from './components/AnnotationPanel.jsx';
 import { DiffView } from './components/DiffView.jsx';
 import { parseManifest } from './utils/manifest.js';
 
 export default function App() {
-  const { state, message, send } = useWebSocket();
+  const { state, message, send } = useServer();
   const [wireframe, setWireframe] = useState(null);
   const [annotations, setAnnotations] = useState([]);
 
