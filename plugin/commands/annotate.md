@@ -93,14 +93,27 @@ EOF
 
 ## Step 4 — Run the annotation server
 
+First, locate the binary. `$CLAUDE_PLUGIN_ROOT` is only set in hook commands, not in Bash tool calls, so derive the path explicitly:
+
+```bash
+_wf="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/wf-annotator}"
+if [ -z "$_wf" ]; then
+  _wf=$(find ~/.claude/plugins/cache -maxdepth 6 -name "wf-annotator" -path "*/scripts/wf-annotator" 2>/dev/null | head -1)
+fi
+if [ -z "$_wf" ]; then
+  echo "wf-annotator not found. Run: /plugin install davywentworth/wf-annotator" >&2
+  exit 1
+fi
+```
+
 **First round (N = 1):**
 ```bash
-result=$("$CLAUDE_PLUGIN_ROOT/scripts/wf-annotator" serve --wireframe plans/<slug>/wireframe-v1.html --version 1 --port 7823)
+result=$("$_wf" serve --wireframe plans/<slug>/wireframe-v1.html --version 1 --port 7823)
 ```
 
 **Subsequent rounds (N ≥ 2, shows diff view):**
 ```bash
-result=$("$CLAUDE_PLUGIN_ROOT/scripts/wf-annotator" serve \
+result=$("$_wf" serve \
   --wireframe plans/<slug>/wireframe-v<N>.html \
   --previous plans/<slug>/wireframe-v<N-1>.html \
   --annotations plans/<slug>/annotations-v<N-1>.json \
