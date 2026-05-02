@@ -96,18 +96,19 @@ export function WireframeView({ html, labelMap, onAnnotation, faded = false }) {
     const el = getShadowElAtPoint(e.clientX, e.clientY);
     const id = el ? getIdFromEl(el) : null;
     if (!id) return;
-    const rect = getRectRelative(id);
-    if (!rect) return;
     const hostR = hostRef.current.getBoundingClientRect();
+    // Anchor to click position so the popup stays visible regardless of element size.
+    const clickX = e.clientX - hostR.left;
+    const clickY = e.clientY - hostR.top;
     setCommentTarget({
       id,
       label: labelMap[id] || id,
       anchor: {
-        x: Math.min(rect.left, hostR.width - 270),
-        y: rect.top + rect.height + 4,
+        x: Math.min(Math.max(clickX - 120, 4), hostR.width - 274),
+        y: Math.min(clickY + 12, hostR.height - 160),
       },
     });
-  }, [getShadowElAtPoint, getRectRelative, labelMap]);
+  }, [getShadowElAtPoint, labelMap]);
 
   const handleMouseUp = useCallback((e) => {
     const drag = dragRef.current;

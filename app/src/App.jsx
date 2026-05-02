@@ -9,6 +9,7 @@ export default function App() {
   const { state, message, send } = useServer();
   const [wireframe, setWireframe] = useState(null);
   const [annotations, setAnnotations] = useState([]);
+  const [done, setDone] = useState(null); // null | 'submitted' | 'approved'
   const prevVersionRef = useRef(null);
 
   useEffect(() => {
@@ -29,12 +30,20 @@ export default function App() {
   const handleSubmit = async () => {
     if (!wireframe) return;
     const ok = await send({ type: 'submit', wireframeVersion: wireframe.version, annotations });
-    if (ok) setAnnotations([]);
+    if (ok) {
+      setAnnotations([]);
+      setDone('submitted');
+      setTimeout(() => window.close(), 1500);
+    }
   };
 
-  const handleApprove = () => {
+  const handleApprove = async () => {
     if (!wireframe) return;
-    send({ type: 'approve', wireframeVersion: wireframe.version });
+    const ok = await send({ type: 'approve', wireframeVersion: wireframe.version });
+    if (ok) {
+      setDone('approved');
+      setTimeout(() => window.close(), 1500);
+    }
   };
 
   if (state === 'connecting' && !wireframe) {
@@ -95,6 +104,18 @@ export default function App() {
         onSubmit={handleSubmit}
         onApprove={handleApprove}
       />
+
+      {done && (
+        <div className="fixed inset-0 bg-white/90 flex items-center justify-center z-50">
+          <div className="text-center">
+            <div className="text-green-500 text-5xl mb-4">✓</div>
+            <p className="text-gray-800 font-semibold text-lg">
+              {done === 'approved' ? 'Wireframe approved!' : 'Annotations submitted!'}
+            </p>
+            <p className="text-gray-400 text-sm mt-1">You can close this tab.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
