@@ -38,9 +38,16 @@ const wireframeHtml = fs.readFileSync(wireframePath, 'utf8');
 const previousHtml = previousPath && fs.existsSync(previousPath)
   ? fs.readFileSync(previousPath, 'utf8')
   : null;
-const previousAnnotations = annotationsPath && fs.existsSync(annotationsPath)
-  ? (JSON.parse(fs.readFileSync(annotationsPath, 'utf8')).annotations || [])
-  : null;
+
+let previousAnnotations = null;
+if (annotationsPath && fs.existsSync(annotationsPath)) {
+  try {
+    previousAnnotations = JSON.parse(fs.readFileSync(annotationsPath, 'utf8')).annotations || [];
+  } catch {
+    process.stderr.write(`Invalid JSON in annotations file: ${annotationsPath}\n`);
+    process.exit(1);
+  }
+}
 
 const distDir = path.join(__dirname, 'dist');
 
@@ -64,6 +71,16 @@ function serveFile(res, filePath) {
   res.end(fs.readFileSync(filePath));
 }
 
+// Track the open SSE connection so we can explicitly close it on shutdown.
+// server.close() stops new connections but doesn't destroy existing ones,
+// so process.exit() after server.close() would hang without this.
+let sseRes = null;
+
+function shutdown() {
+  if (sseRes) sseRes.destroy();
+  server.close(() => process.exit(0));
+}
+
 const server = http.createServer((req, res) => {
   if (req.url === '/api/status') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -85,15 +102,21 @@ const server = http.createServer((req, res) => {
 
     res.write(`data: ${JSON.stringify(payload)}\n\n`);
 
+    sseRes = res;
     req.on('close', () => {
+      sseRes = null;
       process.stderr.write('Browser disconnected.\n');
     });
     return;
   }
 
   if (req.url === '/api/submit' && req.method === 'POST') {
+    const MAX_BODY = 10 * 1024 * 1024;
     let body = '';
-    req.on('data', (chunk) => { body += chunk; });
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > MAX_BODY) { req.destroy(); }
+    });
     req.on('end', () => {
       let msg;
       try { msg = JSON.parse(body); } catch {
@@ -101,9 +124,6 @@ const server = http.createServer((req, res) => {
         res.end('Bad JSON');
         return;
       }
-
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true }));
 
       if (msg.type === 'submit') {
         process.stdout.write(JSON.stringify({
@@ -115,16 +135,29 @@ const server = http.createServer((req, res) => {
           approved: true,
           wireframeVersion: msg.wireframeVersion,
         }) + '\n');
+      } else {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: `Unknown type: ${msg.type}` }));
+        return;
       }
 
-      server.close();
-      process.exit(0);
+      // Flush the response before tearing down.
+      res.on('finish', shutdown);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
     });
     return;
   }
 
+  // Static file serving with path traversal protection.
   const urlPath = req.url === '/' ? '/index.html' : req.url.split('?')[0];
-  serveFile(res, path.join(distDir, urlPath));
+  const resolved = path.resolve(distDir, '.' + urlPath);
+  if (!resolved.startsWith(distDir + path.sep) && resolved !== distDir) {
+    res.writeHead(403);
+    res.end('Forbidden');
+    return;
+  }
+  serveFile(res, resolved);
 });
 
 server.on('error', (err) => {
@@ -151,5 +184,5 @@ server.listen(port, () => {
   }
 });
 
-process.on('SIGTERM', () => { server.close(); process.exit(0); });
-process.on('SIGINT', () => { server.close(); process.exit(0); });
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

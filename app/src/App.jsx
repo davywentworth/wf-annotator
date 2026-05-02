@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useServer } from './hooks/useServer.js';
 import { WireframeView } from './components/WireframeView.jsx';
 import { AnnotationPanel } from './components/AnnotationPanel.jsx';
@@ -9,29 +9,41 @@ export default function App() {
   const { state, message, send } = useServer();
   const [wireframe, setWireframe] = useState(null);
   const [annotations, setAnnotations] = useState([]);
+  const [done, setDone] = useState(null); // null | 'submitted' | 'approved'
+  const prevVersionRef = useRef(null);
 
   useEffect(() => {
     if (!message) return;
-    if (message.type === 'wireframe' || message.type === 'wireframe-update') {
-      setWireframe((prev) => {
-        // Only clear annotations when the version changes (new round), not on SSE reconnect.
-        if (prev?.version !== message.version) setAnnotations([]);
-        return message;
-      });
+    if (message.type !== 'wireframe' && message.type !== 'wireframe-update') return;
+    // Clear annotations only when the version advances (new round), not on SSE reconnect.
+    if (prevVersionRef.current !== message.version) {
+      setAnnotations([]);
+      prevVersionRef.current = message.version;
     }
+    setWireframe(message);
   }, [message]);
 
   const addAnnotation = (a) => setAnnotations((prev) => [...prev, a]);
   const deleteAnnotation = (i) => setAnnotations((prev) => prev.filter((_, idx) => idx !== i));
   const addGeneral = (note) => addAnnotation({ type: 'general', note });
 
-  const handleSubmit = () => {
-    send({ type: 'submit', wireframeVersion: wireframe.version, annotations });
-    setAnnotations([]);
+  const handleSubmit = async () => {
+    if (!wireframe) return;
+    const ok = await send({ type: 'submit', wireframeVersion: wireframe.version, annotations });
+    if (ok) {
+      setAnnotations([]);
+      setDone('submitted');
+      setTimeout(() => window.close(), 1500);
+    }
   };
 
-  const handleApprove = () => {
-    send({ type: 'approve', wireframeVersion: wireframe.version });
+  const handleApprove = async () => {
+    if (!wireframe) return;
+    const ok = await send({ type: 'approve', wireframeVersion: wireframe.version });
+    if (ok) {
+      setDone('approved');
+      setTimeout(() => window.close(), 1500);
+    }
   };
 
   if (state === 'connecting' && !wireframe) {
@@ -93,6 +105,17 @@ export default function App() {
         onApprove={handleApprove}
       />
 
+      {done && (
+        <div className="fixed inset-0 bg-white/90 flex items-center justify-center z-50">
+          <div className="text-center">
+            <div className="text-green-500 text-5xl mb-4">✓</div>
+            <p className="text-gray-800 font-semibold text-lg">
+              {done === 'approved' ? 'Wireframe approved!' : 'Annotations submitted!'}
+            </p>
+            <p className="text-gray-400 text-sm mt-1">You can close this tab.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
